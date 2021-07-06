@@ -6,7 +6,10 @@ use slab::Slab;
 use futures::{future, Future};
 use hyper::{Body, Error, Method, Request, Response, Server, StatusCode};
 use hyper::service::service_fn;
+use log::{debug, info , trace};
 
+#[macro_use]
+extern crate log;
 
 // Adding shared state
 type UserId = u64;
@@ -49,6 +52,7 @@ fn microservice_handler(req: Request<Body>, user_db: &UserDb) -> impl Future<Ite
     let response = {
         let method = req.method();
         let path   = req.uri().path();
+        debug!("Method: {}, PATH: {}", method, path);
         // GETTING LOCK OF USER DB FOR THREAD
         let mut users = user_db.lock().unwrap();
 
@@ -65,6 +69,7 @@ fn microservice_handler(req: Request<Body>, user_db: &UserDb) -> impl Future<Ite
                 response_with_code(StatusCode::METHOD_NOT_ALLOWED)
             }
         } else if USERS_PATH.is_match(path) {
+            debug!("Getting All Users...");
             if method == &Method::GET {
                 let list = users.iter()
                     .map(|(id, _) | id.to_string())
@@ -87,6 +92,7 @@ fn microservice_handler(req: Request<Body>, user_db: &UserDb) -> impl Future<Ite
             match (method, user_id) {
                 (&Method::POST, None) => {
                     let id = users.insert(UserData);
+                    debug!("Inserted user {}!", id.to_string());
                     Response::new(id.to_string().into())
                 },
                 (&Method::POST, Some(_)) => {
@@ -110,6 +116,7 @@ fn microservice_handler(req: Request<Body>, user_db: &UserDb) -> impl Future<Ite
                 (&Method::DELETE, Some(id)) => { 
                     if users.contains(id) {
                         users.remove(id);
+                        debug!("Deleted user {}!", id.to_string());
                         response_with_code(StatusCode::OK)
                     } else {
                         response_with_code(StatusCode::NOT_FOUND)
@@ -119,7 +126,7 @@ fn microservice_handler(req: Request<Body>, user_db: &UserDb) -> impl Future<Ite
                     response_with_code(StatusCode::METHOD_NOT_ALLOWED)
                 }
             }
-            
+
         } else {
             response_with_code(StatusCode::NOT_FOUND)
         }
@@ -129,11 +136,15 @@ fn microservice_handler(req: Request<Body>, user_db: &UserDb) -> impl Future<Ite
 }
 
 fn main() {
-    
+    env_logger::init();
+    info!("Shared DB Microservice - v0.1.0");
+    trace!("Starting...");
     // Binding local address
     let addr = ([0, 0, 0, 0], 8080).into();
     // Server instance, it returns Builder struct
+    debug!("Binding server to address {}...", addr);
     let builder = Server::bind(&addr);
+    trace!("Creating service handler...");
     let user_db = Arc::new(Mutex::new(Slab::new()));
     // Default handler to accept requests
     // Using service_fn as handlers for request results
@@ -145,6 +156,6 @@ fn main() {
 
     // Dropping server errors
     let server = server.map_err(drop);
-
+    debug!("Run!");
     hyper::rt::run(server)
 }
